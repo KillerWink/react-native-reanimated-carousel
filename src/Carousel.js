@@ -28,21 +28,86 @@ const {
     onChange,
     lessThan,
     neq,
+    interpolate,
+    round,
+    divide,
 } = Animated;
 
 const currentWidth = new Value(0);
-const reset = new Value(-1);
+const dragX = new Value(0);
+const offsetX = new Value(0);
+const velocity = new Value(0);
+const gestureState = new Value(-1);
+let translationX = new Value(0);
 
-const frfr = (arr) => {
-    //console.log(arr);
-};
+function setTranslationX(cumulative, panLimit, velocityLimit, duration) {
 
-const myProc = proc((arr) => call([arr], frfr));
+    let testIndex = new Value(0);
 
-function scaleDiff(arr, index) {
-    const tmp = arr[index];
-    return set(currentWidth, tmp);
+    const getScrollBehaviour = cond(
+        greaterThan(dragX, 0),
+        divide(
+            add(offsetX, dragX),
+            round(interpolate(abs(velocity), {
+                inputRange: [0, 2000],
+                outputRange: [1, 2],
+                extrapolate: 'clamp',
+            })),
+        ),
+        multiply(
+            add(offsetX, dragX),
+            round(interpolate(abs(velocity), {
+                inputRange: [0, 2000],
+                outputRange: [1, 2],
+                extrapolate: 'clamp',
+            })),
+        ),
+    );
+
+    const goBackToStart = set(offsetX, currentWidth);
+
+    const setIndex = block([
+        ...cumulative.map((element, index) =>
+            block([
+                cond(
+                    lessOrEq(getScrollBehaviour, element),
+                    [set(testIndex, index), set(currentWidth, element)]
+                )
+            ]),
+        )
+    ]);
+
+    const checkIfActionNeeded =
+        cond(
+            eq(gestureState, State.END),
+            cond(
+                or(
+                    greaterOrEq(abs(dragX), panLimit),
+                    greaterOrEq(abs(velocity), velocityLimit)
+                ),
+                set(offsetX, currentWidth),
+                goBackToStart
+            ),
+            add(offsetX, dragX),
+        );
+
+
+    return translationX = cond(
+        or(
+            eq(gestureState, State.ACTIVE),
+            eq(gestureState, State.BEGAN)
+        ),
+        [setIndex, add(offsetX, dragX)],
+        runTiming(
+            new Clock(),
+            add(offsetX, dragX),
+            checkIfActionNeeded,
+            duration,
+            testIndex,
+        ),
+    );
 }
+
 
 class Carousel extends Component {
 
@@ -50,67 +115,27 @@ class Carousel extends Component {
     static contextType = CarouselContext;
     constructor(props) {
         super(props);
-
-        this.slideWidths = new Value(React.Children.map(this.props.children, (child, index) => {
-            return;
-        }));
-        this.st = [10, 200, 300];
-        this.stf = [0, -110, -110, -110, -110, 0];
+        this.state = {
+            widthArrays: [],
+            cumulative: false,
+        };
+        this.onLayout = this.onLayout.bind(this);
+        this.stf = [0, -110, -110, -110, -110, -110, -110, -110, -110, 0];
         this.cumulative = this.stf.reduce(function(r, a) {
             r.push((r.length && r[r.length - 1] || 0) + a);
             return r;
         }, []);
-        console.log(this.cumulative);
-        this.dragX = new Value(0);
-        this.offsetX = new Value(0);
-        this.gestureState = new Value(-1);
-        this.currentIndex = new Value(0);
         this.totalItems = new Value(React.Children.count(this.props.children));
-        this.velocity = new Value(0);
-        this.tet = new Value(0);
-        //console.log(this.value);
-        this.onLayout = (event, i) => {
-            //console.log('here123', Math.round(event.nativeEvent.layout.width*-1));
-            // this.currentWidth = new Value(-10);
-            //console.log(this);
-            //this.slideWidths._value.setValue(event.nativeEvent.layout.width*-1);
-            //console.log(this.slideWidths);
-            //this.currentWidth.setValue(event.nativeEvent.layout.width*-1);
-            //this.setState({slideWidth: e.nativeEvent.layout.width});
-            //set(this.currentWidth, 50),
-            //tet[i].setValue(Math.round(event.nativeEvent.layout.width*-1));
-            //tet[i] = Math.round(event.nativeEvent.layout.width*-1);
-            //myProc(Math.round(event.nativeEvent.layout.width*-1));
-
-            //this.props[`a${i}`].setValue(Math.round(event.nativeEvent.layout.width*-1));
-            this.st[i+1] = Math.round(event.nativeEvent.layout.width*-1);
-            //this.hello = new Value(this.st);
-            //set(this.tet, this.hello);
-            if(i === 2){
-                //console.log('here123', this.st);
-                //this.slideWidths.setValue([])
-                //this.tet.setValue([0,0,0]);
-            }
-
-        }
-
-        //console.log('hello', this.props.a0);
 
         this.test = (i) => {
             console.log(i);
-            //currentWidth.setValue(this.st[i[0]]);
-
-        }
-
-        this.test2 = (arr) => {
-            console.log(arr);
         }
 
         this.onPanGestureEvent = event(
             [{ nativeEvent: {
-                velocityX: this.velocity,
-                state: this.gestureState,
-                translationX: this.dragX
+                velocityX: velocity,
+                state: gestureState,
+                translationX: dragX
             } }]
         );
 
@@ -119,118 +144,31 @@ class Carousel extends Component {
             setActiveSlide(slide[0]);
         };
 
-        const setIndexLeft = cond(
-            lessOrEq(this.currentIndex, 0),
-            set(this.currentIndex, 0),
-            set(this.currentIndex, sub(this.currentIndex, 1)),
-        );
-        const setIndexRight = cond(
-            greaterOrEq(this.currentIndex, sub(this.totalItems, 1)),
-            set(this.currentIndex, sub(this.totalItems, 1)),
-            set(this.currentIndex, add(this.currentIndex, 1)),
-        );
 
-        this.sum = new Value(0);
-
-        const totalledArray = block([
-            ...this.stf.map((element, index) =>
-                block([
-                    set(this.sum, add(this.sum, element))
-                ]),
-            )
-        ]);
-
-
-        const setArrayOfWidths = block([
-            ...this.stf.map((element, index) =>
-                block([
-                    cond(
-                        eq(this.currentIndex, index),
-                        set(currentWidth, element)
-                    )
-                ]),
-            )
-        ]);
-
-        const goLeft = block([
-            setIndexLeft,
-            setArrayOfWidths,
-            currentWidth,
-            set(this.offsetX, currentWidth),
-        ]);
-
-        const goRight = block([
-            cond(
-                lessThan(this.currentIndex, sub(this.totalItems, 1)),
-                [
-                    setIndexRight,
-                    setArrayOfWidths,
-                    add(currentWidth, this.offsetX),
-                    set(this.offsetX, add(currentWidth, this.offsetX))
-                ],
-                [
-                    set(this.offsetX, this.offsetX)
-                ]
-            )
-        ]);
-
-        const checkIfLeftOrRight = cond(
-            greaterThan(this.dragX, 0),
-            goLeft,
-            goRight,
-        );
-
-
-
-
-
-        const goBackToStart = set(this.offsetX, currentWidth);
-
-        this.testIndex = new Value(0);
-
-        const setIndex = block([
-            ...this.cumulative.map((element, index) =>
-                block([
-                    cond(
-                        lessOrEq(sub(add(this.offsetX, this.dragX), this.props.panLimit), element),
-                        [set(this.testIndex, index), set(currentWidth, element)]
-                    )
-                ]),
-            )
-        ]);
-
-        const checkIfActionNeeded =
-            cond(
-                eq(this.gestureState, State.END),
-                cond(
-                    or(
-                        greaterOrEq(abs(this.dragX), this.props.panLimit),
-                        greaterOrEq(abs(this.velocity), this.props.velocityLimit)
-                    ),
-                    set(this.offsetX, currentWidth),
-                    goBackToStart
-                ),
-                add(this.offsetX, this.dragX),
-            );
-
-
-        this.transX = cond(
-            or(
-                eq(this.gestureState, State.ACTIVE),
-                eq(this.gestureState, State.BEGAN)
-            ),
-            [setIndex, add(this.offsetX, this.dragX)],
-            runTiming(
-                new Clock(),
-                add(this.offsetX, this.dragX),
-                checkIfActionNeeded,
-                this.props.duration,
-                this.currentIndex,
-                this.setSlideContext
-            ),
-        );
 
     }
+
+    addLayoutValues = () => {
+        cumulative = this.state.widthArrays.reduce(function(r, a) {
+            r.push((r.length && r[r.length - 1] || 0) + a);
+            return r;
+        }, []);
+        this.setState({ cumulative });
+        this.transX = setTranslationX(this.cumulative, this.props.panLimit, this.props.velocityLimit, this.props.duration);
+    }
+
+    onLayout = (event, i) => {
+        let cumulative;
+        this.setState({ widthArrays: [...this.state.widthArrays, event.nativeEvent.layout.width*-1 ] });
+
+        //console.log(cumulative);
+    }
+
+    componentDidMount() {
+        console.log(this.state.cumulative);
+        //this.setState({ cumulative: true });
+    }
+
 
 
     render(){
@@ -243,10 +181,10 @@ class Carousel extends Component {
                     width: this.props.width,
                 }}>
                     <Animated.Code>
-                        { () => call([this.velocity], this.test) }
+                        { () => call([], this.test) }
                     </Animated.Code>
                     <Animated.View style={{
-                        transform: [{translateX: this.transX}],
+                        transform: [{translateX: this.state.cumulative ? this.transX : 0}],
                     }}>
                         <CarouselContainer height={this.props.height} width={this.props.width}>
                             { React.Children.map(this.props.children, (child, index) => (

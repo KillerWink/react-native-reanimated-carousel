@@ -13,7 +13,7 @@ const {
     call,
 } = Animated;
 
-const runTiming = (clock, value, dest, duration, currentIndex, setSlideContext) => {
+const runTiming = (clock, value, dest, duration, currentIndex) => {
 
     const state = {
         finished: new Value(0),
@@ -38,7 +38,7 @@ const runTiming = (clock, value, dest, duration, currentIndex, setSlideContext) 
             startClock(clock),
         ]),
         timing(clock, state, config),
-        cond(state.finished, block([stopClock(clock), call([currentIndex], setSlideContext)])),
+        cond(state.finished, block([stopClock(clock)])),
         state.position,
     ]);
 };
