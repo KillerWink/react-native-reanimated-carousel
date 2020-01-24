@@ -19,15 +19,10 @@ const {
     greaterThan,
     multiply,
     abs,
-    sub,
     block,
     lessOrEq,
     Clock,
     call,
-    proc,
-    onChange,
-    lessThan,
-    neq,
     interpolate,
     round,
     divide,
@@ -39,12 +34,10 @@ const offsetX = new Value(0);
 const velocity = new Value(0);
 const gestureState = new Value(-1);
 let translationX = new Value(0);
+let setIndex = new Value(0);
 
-function setTranslationX(cumulative, panLimit, velocityLimit, duration) {
-
-    let testIndex = new Value(0);
-
-    const getScrollBehaviour = cond(
+function getScrollBehaviour() {
+    return cond(
         greaterThan(dragX, 0),
         divide(
             add(offsetX, dragX),
@@ -63,22 +56,35 @@ function setTranslationX(cumulative, panLimit, velocityLimit, duration) {
             })),
         ),
     );
+}
 
-    const goBackToStart = set(offsetX, currentWidth);
-
-    const setIndex = block([
+function setIndexFromWidthArray(cumulative, canScroll) {
+    return block([
         ...cumulative.map((element, index) =>
             block([
                 cond(
-                    lessOrEq(getScrollBehaviour, element),
-                    [set(testIndex, index), set(currentWidth, element)]
+                    lessOrEq(
+                        cond(
+                            eq(canScroll, 1),
+                            getScrollBehaviour(),
+                            add(offsetX, dragX)
+                        ),
+                        element
+                    ),
+                    [set(setIndex, index), set(currentWidth, element)]
                 )
             ]),
         )
     ]);
+}
 
-    const checkIfActionNeeded =
-        cond(
+
+function goBackToStart(){
+    return set(offsetX, currentWidth);
+}
+
+function checkIfFurtherActionNeeded(panLimit, velocityLimit){
+    return cond(
             eq(gestureState, State.END),
             cond(
                 or(
@@ -86,31 +92,31 @@ function setTranslationX(cumulative, panLimit, velocityLimit, duration) {
                     greaterOrEq(abs(velocity), velocityLimit)
                 ),
                 set(offsetX, currentWidth),
-                goBackToStart
+                goBackToStart()
             ),
             add(offsetX, dragX),
         );
+}
 
 
+function setTranslationX(cumulative, panLimit, velocityLimit, duration, canScroll) {
     return translationX = cond(
         or(
             eq(gestureState, State.ACTIVE),
             eq(gestureState, State.BEGAN)
         ),
-        [setIndex, add(offsetX, dragX)],
+        [setIndexFromWidthArray(cumulative, canScroll), add(offsetX, dragX)],
         runTiming(
             new Clock(),
             add(offsetX, dragX),
-            checkIfActionNeeded,
+            checkIfFurtherActionNeeded(panLimit, velocityLimit),
             duration,
-            testIndex,
         ),
     );
 }
 
 
 class Carousel extends Component {
-
 
     static contextType = CarouselContext;
     constructor(props) {
@@ -120,16 +126,8 @@ class Carousel extends Component {
             cumulative: false,
         };
         this.onLayout = this.onLayout.bind(this);
-        this.stf = [0, -110, -110, -110, -110, -110, -110, -110, -110, 0];
-        this.cumulative = this.stf.reduce(function(r, a) {
-            r.push((r.length && r[r.length - 1] || 0) + a);
-            return r;
-        }, []);
+        this.addLayoutValues = this.addLayoutValues.bind(this);
         this.totalItems = new Value(React.Children.count(this.props.children));
-
-        this.test = (i) => {
-            console.log(i);
-        }
 
         this.onPanGestureEvent = event(
             [{ nativeEvent: {
@@ -144,31 +142,24 @@ class Carousel extends Component {
             setActiveSlide(slide[0]);
         };
 
-
-
     }
 
     addLayoutValues = () => {
-        cumulative = this.state.widthArrays.reduce(function(r, a) {
-            r.push((r.length && r[r.length - 1] || 0) + a);
-            return r;
+        let cumulative;
+        cumulative = this.state.widthArrays.reduce(function(arr, val) {
+            arr.push((arr.length && arr[arr.length - 1] || 0) + val);
+            return val;
         }, []);
         this.setState({ cumulative });
-        this.transX = setTranslationX(this.cumulative, this.props.panLimit, this.props.velocityLimit, this.props.duration);
-    }
+        this.transX = setTranslationX(cumulative, this.props.panLimit, this.props.velocityLimit, this.props.duration);
+    };
 
-    onLayout = (event, i) => {
-        let cumulative;
+    onLayout = (event, index) => {
         this.setState({ widthArrays: [...this.state.widthArrays, event.nativeEvent.layout.width*-1 ] });
-
-        //console.log(cumulative);
-    }
-
-    componentDidMount() {
-        console.log(this.state.cumulative);
-        //this.setState({ cumulative: true });
-    }
-
+        if(index+1 === this.totalItems) {
+            this.addLayoutValues();
+        }
+    };
 
 
     render(){
@@ -181,7 +172,7 @@ class Carousel extends Component {
                     width: this.props.width,
                 }}>
                     <Animated.Code>
-                        { () => call([], this.test) }
+                        { () => call([setIndex], this.setSlideContext) }
                     </Animated.Code>
                     <Animated.View style={{
                         transform: [{translateX: this.state.cumulative ? this.transX : 0}],
